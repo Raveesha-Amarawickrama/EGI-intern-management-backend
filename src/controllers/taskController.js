@@ -1,4 +1,3 @@
-
 const Task     = require("../models/Task");
 const User     = require("../models/User");
 const mongoose = require("mongoose");
@@ -11,11 +10,25 @@ const currentWeekKey = () => {
 };
 
 
-const recalcParentMins = (task) => {
-  if (task.subTasks && task.subTasks.length > 0) {
-    task.totalMinutes = task.subTasks.reduce((s, st) => s + (st.totalMinutes || 0), 0);
-  }
+const weekKeyToDateRange = (wk) => {
+  const [yearStr, wStr] = wk.split("-W");
+  const year = parseInt(yearStr);
+  const week = parseInt(wStr);
+
+  const jan1     = new Date(year, 0, 1);
+  const jan1Day  = jan1.getDay(); 
+
+  const daysToMon = jan1Day === 0 ? 1 : jan1Day === 1 ? 0 : 8 - jan1Day;
+  const firstMon  = new Date(year, 0, 1 + daysToMon);
+
+  const mon = new Date(firstMon);
+  mon.setDate(firstMon.getDate() + (week - 1) * 7);
+  const sun = new Date(mon);
+  sun.setDate(mon.getDate() + 6);
+  const fmt = (d) => d.toISOString().split("T")[0];
+  return { start: fmt(mon), end: fmt(sun) };
 };
+
 
 const enrichTasks = async (tasks) => {
   const allUsernames = [...new Set(tasks.flatMap(t => t.adminChecked || []))];
@@ -30,10 +43,10 @@ const enrichTasks = async (tasks) => {
   });
 };
 
-
+// ─────────────────────────────────────────────────────────────────────────────
 exports.getTasks = async (req, res, next) => {
   try {
-    const { status, project, search, internId } = req.query;
+    const { status, project, search, internId, date, weekKey } = req.query;
     let filter = {};
 
     if (req.user.role === "intern") {
@@ -45,6 +58,17 @@ exports.getTasks = async (req, res, next) => {
     if (status  && status  !== "All") filter.status  = status;
     if (project && project !== "All") filter.project = project;
     if (search)  filter.task = { $regex: search, $options: "i" };
+
+
+    if (date && !weekKey) {
+      filter.date = date;
+    }
+
+  
+    if (weekKey) {
+      const { start, end } = weekKeyToDateRange(weekKey);
+      filter.date = { $gte: start, $lte: end };
+    }
 
     let tasks = await Task.find(filter)
       .populate("assignedTo", "name avatar avatarColor role supervisorLevel")
@@ -58,7 +82,6 @@ exports.getTasks = async (req, res, next) => {
         return at.role === "intern" || String(at._id) === String(req.user._id);
       });
     }
-
 
     const fixedTasks = tasks.map(t => {
       const obj = t.toObject ? t.toObject() : t;
@@ -77,8 +100,9 @@ exports.getWeeklyHours = async (req, res, next) => {
   try {
     const { weekKey, internId } = req.query;
     const wk = weekKey || currentWeekKey();
+    const { start, end } = weekKeyToDateRange(wk);
 
-    const filter = { weekKey: wk };
+    const filter = { date: { $gte: start, $lte: end } };
     if (req.user.role === "intern") {
       filter.assignedTo = req.user._id;
     } else if (internId && internId !== "All") {
@@ -98,7 +122,6 @@ exports.getWeeklyHours = async (req, res, next) => {
       if (t.isLeave) {
         grouped[key].leaveDays += 1;
       } else {
-    
         const mins = (t.totalMinutes > 0)
           ? t.totalMinutes
           : (t.subTasks||[]).reduce((s, st) => s + (st.totalMinutes||0), 0);
@@ -119,7 +142,6 @@ exports.getWeeklyHours = async (req, res, next) => {
     res.json({ success: true, weekKey: wk, report });
   } catch (err) { next(err); }
 };
-
 
 exports.getTask = async (req, res, next) => {
   try {
@@ -142,7 +164,6 @@ exports.getTask = async (req, res, next) => {
     res.json({ success: true, task: enriched });
   } catch (err) { next(err); }
 };
-
 
 exports.createTask = async (req, res, next) => {
   try {
@@ -219,9 +240,6 @@ exports.updateTask = async (req, res, next) => {
     fields.forEach(f => { if (req.body[f] !== undefined) task[f] = req.body[f]; });
     if (req.body.totalMinutes !== undefined) task.totalMinutes = parseInt(req.body.totalMinutes) || 0;
 
-  
-    recalcParentMins(task);
-
     await task.save();
     await task.populate("assignedTo", "name avatar avatarColor");
     await task.populate("createdBy",  "name");
@@ -230,7 +248,6 @@ exports.updateTask = async (req, res, next) => {
     res.json({ success: true, task: enriched });
   } catch (err) { next(err); }
 };
-
 
 exports.updateStatus = async (req, res, next) => {
   try {
@@ -248,7 +265,6 @@ exports.updateStatus = async (req, res, next) => {
     res.json({ success: true, task: enriched });
   } catch (err) { next(err); }
 };
-
 
 exports.toggleCheck = async (req, res, next) => {
   try {
@@ -292,8 +308,6 @@ exports.deleteTask = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-
-
 exports.createSubTask = async (req, res, next) => {
   try {
     const task = await Task.findById(req.params.id).populate("assignedTo","role");
@@ -303,20 +317,14 @@ exports.createSubTask = async (req, res, next) => {
     if (req.user.role === "intern" && String(task.assignedTo._id) !== String(req.user._id))
       return res.status(403).json({ success: false, message: "Access denied." });
 
-    const { title, status, estimateTime, timeFrom, timeTo, totalMinutes, workDoc, reason } = req.body;
-    task.subTasks.push({
-      title,
-      status:       status       || "To Do",
-      estimateTime: estimateTime || "",
-      timeFrom:     timeFrom     || "",
-      timeTo:       timeTo       || "",
-      totalMinutes: parseInt(totalMinutes) || 0,
-      workDoc:      workDoc      || "",
-      reason:       reason       || "",
-    });
 
- 
-    recalcParentMins(task);
+    const existingMins = task.totalMinutes || 0;
+
+    const { title } = req.body;
+    task.subTasks.push({ title, status: "To Do", estimateTime: "", timeFrom: "", timeTo: "", totalMinutes: 0, workDoc: "", reason: "" });
+
+  
+    task.totalMinutes = existingMins;
 
     await task.save();
     await task.populate("assignedTo", "name avatar avatarColor");
@@ -338,18 +346,9 @@ exports.updateSubTask = async (req, res, next) => {
     const sub = task.subTasks.id(req.params.subId);
     if (!sub) return res.status(404).json({ success: false, message: "Sub-task not found." });
 
-    ["title","status","estimateTime","timeFrom","timeTo","totalMinutes","workDoc","reason"]
-      .forEach(f => { if (req.body[f] !== undefined) sub[f] = req.body[f]; });
+   
+    if (req.body.title        !== undefined) sub.title        = req.body.title;
     if (req.body.totalMinutes !== undefined) sub.totalMinutes = parseInt(req.body.totalMinutes) || 0;
-    if (req.body.status === "Done") sub.completedAt = new Date();
-
-
-    recalcParentMins(task);
-
-
-    const statuses = task.subTasks.map(st => st.status);
-    if (statuses.every(s => s === "Done"))            task.status = "Done";
-    else if (statuses.some(s => s === "In Progress")) task.status = "In Progress";
 
     await task.save();
     await task.populate("assignedTo", "name avatar avatarColor");
@@ -368,10 +367,9 @@ exports.deleteSubTask = async (req, res, next) => {
     if (req.user.role === "intern" && String(task.assignedTo._id) !== String(req.user._id))
       return res.status(403).json({ success: false, message: "Access denied." });
 
+    const existingMins = task.totalMinutes || 0;
     task.subTasks = task.subTasks.filter(st => String(st._id) !== req.params.subId);
-
-  
-    recalcParentMins(task);
+    task.totalMinutes = existingMins;
 
     await task.save();
     await task.populate("assignedTo", "name avatar avatarColor");
