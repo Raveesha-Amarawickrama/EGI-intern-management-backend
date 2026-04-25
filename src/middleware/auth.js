@@ -1,4 +1,3 @@
-
 const jwt  = require("jsonwebtoken");
 const User = require("../models/User");
 
@@ -26,7 +25,6 @@ const restrictTo = (...roles) => (req, res, next) => {
   next();
 };
 
-
 const seniorOnly = (req, res, next) => {
   if (req.user.role !== "supervisor" || req.user.supervisorLevel !== "senior") {
     return res.status(403).json({ success: false, message: "Senior supervisors only." });
@@ -34,4 +32,12 @@ const seniorOnly = (req, res, next) => {
   next();
 };
 
-module.exports = { protect, restrictTo, seniorOnly };
+// ── NEW ───────────────────────────────────────────────────────────────────────
+const adminOnly = (req, res, next) => {
+  if (req.user && (req.user.role === "admin" || req.user.role === "supervisor")) {
+    return next();
+  }
+  return res.status(403).json({ success: false, message: "Admin access required." });
+};
+
+module.exports = { protect, restrictTo, seniorOnly, adminOnly }; // ← adminOnly added

@@ -99,3 +99,47 @@ exports.getSummary = async (req, res, next) => {
     res.json({ success: true, summary: { internCount, total, done, totalMins, pct: total ? Math.round((done/total)*100) : 0 } });
   } catch (err) { next(err); }
 };
+
+exports.getSupervisorReport = async (req, res, next) => {
+  try {
+    const supervisors = await User.find({ role: "supervisor" }).select("-password").sort({ name: 1 });
+    const wk = currentWeekKey();
+
+    const report = await Promise.all(supervisors.map(async (sv) => {
+      const allTasks = await Task.find({ assignedTo: sv._id });
+
+      const leaveTasks    = allTasks.filter(t => t.isLeave === true);
+      const realTasks     = allTasks.filter(t => t.isLeave !== true);
+      const weekRealTasks = realTasks.filter(t => t.weekKey === wk);
+
+      const total      = realTasks.length;
+      const done       = realTasks.filter(t => t.status === "Done").length;
+      const inProgress = realTasks.filter(t => t.status === "In Progress").length;
+      const hold       = realTasks.filter(t => t.status === "Hold").length;
+      const todo       = realTasks.filter(t => t.status === "To Do").length;
+      const leaveDays  = leaveTasks.length;
+
+      const totalMins = realTasks.reduce((s, t) => {
+        const p   = t.totalMinutes || 0;
+        const sub = (t.subTasks || []).reduce((ss, st) => ss + (st.totalMinutes || 0), 0);
+        return s + (p > 0 ? p : sub);
+      }, 0);
+      const weekMins = weekRealTasks.reduce((s, t) => {
+        const p   = t.totalMinutes || 0;
+        const sub = (t.subTasks || []).reduce((ss, st) => ss + (st.totalMinutes || 0), 0);
+        return s + (p > 0 ? p : sub);
+      }, 0);
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+      return {
+        _id: sv._id, name: sv.name, username: sv.username,
+        email: sv.email, position: sv.position, department: sv.department,
+        supervisorLevel: sv.supervisorLevel,
+        avatar: sv.avatar, avatarColor: sv.avatarColor,
+        stats: { total, done, inProgress, hold, todo, leaveDays, totalMins, weekMins, pct },
+      };
+    }));
+
+    res.json({ success: true, report });
+  } catch (err) { next(err); }
+};

@@ -9,7 +9,7 @@ const userSchema = new mongoose.Schema(
     password:        { type: String, required: true, minlength: 6 },
     role:            { type: String, required: true, enum: ["intern", "supervisor"] },
   
-    supervisorLevel: { type: String, enum: ["senior", "junior", null], default: null },
+   supervisorLevel: { type: String, enum: ["senior", "supervisor", "junior", null], default: null },
     email:           { type: String, required: true, unique: true, trim: true, lowercase: true },
     contact:         { type: String, default: "" },
     position:        { type: String, default: "" },
