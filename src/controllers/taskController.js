@@ -2,32 +2,8 @@ const Task     = require("../models/Task");
 const User     = require("../models/User");
 const mongoose = require("mongoose");
 
-const currentWeekKey = () => {
-  const d    = new Date();
-  const jan1 = new Date(d.getFullYear(), 0, 1);
-  const week = Math.ceil(((d - jan1) / 86400000 + jan1.getDay() + 1) / 7);
-  return `${d.getFullYear()}-W${String(week).padStart(2, "0")}`;
-};
+const { getWeekKey: currentWeekKey, weekKeyToDateRange } = require("../utils/weekKey");
 
-
-const weekKeyToDateRange = (wk) => {
-  const [yearStr, wStr] = wk.split("-W");
-  const year = parseInt(yearStr);
-  const week = parseInt(wStr);
-
-  const jan1     = new Date(year, 0, 1);
-  const jan1Day  = jan1.getDay(); 
-
-  const daysToMon = jan1Day === 0 ? 1 : jan1Day === 1 ? 0 : 8 - jan1Day;
-  const firstMon  = new Date(year, 0, 1 + daysToMon);
-
-  const mon = new Date(firstMon);
-  mon.setDate(firstMon.getDate() + (week - 1) * 7);
-  const sun = new Date(mon);
-  sun.setDate(mon.getDate() + 6);
-  const fmt = (d) => d.toISOString().split("T")[0];
-  return { start: fmt(mon), end: fmt(sun) };
-};
 
 
 const enrichTasks = async (tasks) => {

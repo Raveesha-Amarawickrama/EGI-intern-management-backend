@@ -1,6 +1,16 @@
-
 const mongoose = require("mongoose");
 const bcrypt   = require("bcryptjs");
+
+const bankDetailsSchema = new mongoose.Schema(
+  {
+    bankName:          { type: String, default: "" },
+    accountHolderName: { type: String, default: "" },
+    accountNumber:     { type: String, default: "" },
+    branchName:        { type: String, default: "" },
+    ifscOrSwift:       { type: String, default: "" },
+  },
+  { _id: false }
+);
 
 const userSchema = new mongoose.Schema(
   {
@@ -8,8 +18,8 @@ const userSchema = new mongoose.Schema(
     username:        { type: String, required: true, unique: true, trim: true, lowercase: true },
     password:        { type: String, required: true, minlength: 6 },
     role:            { type: String, required: true, enum: ["intern", "supervisor"] },
-  
-   supervisorLevel: { type: String, enum: ["senior", "supervisor", "junior", null], default: null },
+
+    supervisorLevel: { type: String, enum: ["senior", "supervisor", "junior", null], default: null },
     email:           { type: String, required: true, unique: true, trim: true, lowercase: true },
     contact:         { type: String, default: "" },
     position:        { type: String, default: "" },
@@ -19,6 +29,17 @@ const userSchema = new mongoose.Schema(
     avatar:          { type: String, default: "U" },
     avatarColor:     { type: String, default: "#1a6640" },
     mustChangePassword: { type: Boolean, default: false },
+
+    // ── Profile: basic details ──────────────────────────────────────────
+    gender:                { type: String, enum: ["Male", "Female", "Other", ""], default: "" },
+    dateOfBirth:            { type: String, default: "" },
+    nic:                    { type: String, default: "" }, // National ID / Passport
+    address:                { type: String, default: "" },
+    emergencyContactName:   { type: String, default: "" },
+    emergencyContactPhone:  { type: String, default: "" },
+
+    // ── Profile: bank details ───────────────────────────────────────────
+    bankDetails: { type: bankDetailsSchema, default: () => ({}) },
   },
   { timestamps: true }
 );
@@ -38,7 +59,6 @@ userSchema.methods.toSafeObject = function () {
   delete obj.password;
   return obj;
 };
-
 
 userSchema.virtual("isSeniorSupervisor").get(function () {
   return this.role === "supervisor" && this.supervisorLevel === "senior";

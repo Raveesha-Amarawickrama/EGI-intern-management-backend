@@ -3,13 +3,8 @@ const Task    = require("../models/Task");
 const User    = require("../models/User");
 const Project = require("../models/Project");
 
-const currentWeekKey = () => {
-  const d    = new Date();
-  const jan1 = new Date(d.getFullYear(), 0, 1);
-  const week = Math.ceil(((d - jan1) / 86400000 + jan1.getDay() + 1) / 7);
-  return `${d.getFullYear()}-W${String(week).padStart(2, "0")}`;
-};
 
+const { getWeekKey: currentWeekKey } = require("../utils/weekKey");
 
 exports.getInternReport = async (req, res, next) => {
   try {

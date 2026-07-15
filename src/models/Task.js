@@ -1,6 +1,6 @@
 
 const mongoose = require("mongoose");
-
+const { getWeekKey } = require("../utils/weekKey");
 const subTaskSchema = new mongoose.Schema(
   {
     title:       { type: String, required: true },
@@ -44,10 +44,7 @@ const taskSchema = new mongoose.Schema(
 
 taskSchema.pre("save", function (next) {
   if (this.date) {
-    const d    = new Date(this.date);
-    const jan1 = new Date(d.getFullYear(), 0, 1);
-    const week = Math.ceil(((d - jan1) / 86400000 + jan1.getDay() + 1) / 7);
-    this.weekKey = `${d.getFullYear()}-W${String(week).padStart(2, "0")}`;
+    this.weekKey = getWeekKey(new Date(this.date));
   }
   next();
 });

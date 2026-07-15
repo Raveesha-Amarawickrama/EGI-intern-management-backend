@@ -1,7 +1,5 @@
-
 const User = require("../models/User");
 const Task = require("../models/Task");
-
 
 exports.getAllUsers = async (req, res, next) => {
   try {
@@ -23,7 +21,6 @@ exports.getAllUsers = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-
 exports.getUser = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -44,16 +41,37 @@ exports.getUser = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-
 exports.updateUser = async (req, res, next) => {
   try {
     const { id } = req.params;
     if (req.user.role === "intern" && String(req.user._id) !== id)
       return res.status(403).json({ success: false, message: "Access denied." });
 
-    const allowed = ["name","email","contact","position","department","startDate","endDate","avatar","avatarColor"];
+    // Only allow supervisors to edit someone else's profile; anyone may edit their own.
+    const editingOther = String(req.user._id) !== id;
+    if (editingOther && req.user.role !== "supervisor")
+      return res.status(403).json({ success: false, message: "Access denied." });
+
+    const allowed = [
+      "name", "email", "contact", "position", "department", "startDate", "endDate",
+      "avatar", "avatarColor",
+      // profile: basic details
+      "gender", "dateOfBirth", "nic", "address",
+      "emergencyContactName", "emergencyContactPhone",
+    ];
     const updates = {};
     allowed.forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
+
+    // profile: bank details (nested object, sent whole from the form)
+    if (req.body.bankDetails !== undefined) {
+      updates.bankDetails = {
+        bankName:          req.body.bankDetails.bankName          || "",
+        accountHolderName: req.body.bankDetails.accountHolderName || "",
+        accountNumber:     req.body.bankDetails.accountNumber     || "",
+        branchName:        req.body.bankDetails.branchName        || "",
+        ifscOrSwift:       req.body.bankDetails.ifscOrSwift        || "",
+      };
+    }
 
     if (req.body.supervisorLevel !== undefined && req.user.supervisorLevel === "senior")
       updates.supervisorLevel = req.body.supervisorLevel;
@@ -62,7 +80,6 @@ exports.updateUser = async (req, res, next) => {
     res.json({ success: true, user });
   } catch (err) { next(err); }
 };
-
 
 exports.deleteUser = async (req, res, next) => {
   try {
@@ -86,7 +103,6 @@ exports.getUserStats = async (req, res, next) => {
     const inProgress = realTasks.filter(t => t.status === "In Progress").length;
     const hold       = realTasks.filter(t => t.status === "Hold").length;
     const todo       = realTasks.filter(t => t.status === "To Do").length;
-
 
     const totalMins  = realTasks.reduce((s, t) => {
       const p   = t.totalMinutes || 0;
