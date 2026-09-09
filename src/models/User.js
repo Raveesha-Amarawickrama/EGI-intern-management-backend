@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const bcrypt   = require("bcryptjs");
 
+// ── Bank details ─────────────────────────────────────────────────────────────
 const bankDetailsSchema = new mongoose.Schema(
   {
     bankName:          { type: String, default: "" },
@@ -12,6 +13,38 @@ const bankDetailsSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// ── Family member (reused for spouse, father, mother) ─────────────────────────
+const familyMemberSchema = new mongoose.Schema(
+  {
+    name:       { type: String, default: "" },
+    nic:        { type: String, default: "" },
+    occupation: { type: String, default: "" },
+    contact:    { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+// ── Child ─────────────────────────────────────────────────────────────────────
+const childSchema = new mongoose.Schema(
+  {
+    name:        { type: String, default: "" },
+    dateOfBirth: { type: String, default: "" },
+    nic:         { type: String, default: "" },
+  },
+  { _id: true }
+);
+
+// ── Document (CV / Police Report / Grama Niladhari) ──────────────────────────
+const documentFileSchema = new mongoose.Schema(
+  {
+    url:        { type: String, default: "" }, // Cloudinary HTTPS URL
+    publicId:   { type: String, default: "" }, // Cloudinary public_id for deletion
+    uploadedAt: { type: Date,   default: null },
+  },
+  { _id: false }
+);
+
+// ── Main user schema ──────────────────────────────────────────────────────────
 const userSchema = new mongoose.Schema(
   {
     name:            { type: String, required: true, trim: true },
@@ -28,18 +61,51 @@ const userSchema = new mongoose.Schema(
     endDate:         { type: String, default: "" },
     avatar:          { type: String, default: "U" },
     avatarColor:     { type: String, default: "#1a6640" },
+
+    // profile picture – Cloudinary HTTPS URL
+    profilePicture:   { type: String, default: "" },
+    // Cloudinary public_id for the profile picture (needed for deletion)
+    profilePictureId: { type: String, default: "" },
+
     mustChangePassword: { type: Boolean, default: false },
 
-    // ── Profile: basic details ──────────────────────────────────────────
+    // ── Basic details ──────────────────────────────────────────────────────
     gender:                { type: String, enum: ["Male", "Female", "Other", ""], default: "" },
-    dateOfBirth:            { type: String, default: "" },
-    nic:                    { type: String, default: "" }, // National ID / Passport
-    address:                { type: String, default: "" },
-    emergencyContactName:   { type: String, default: "" },
-    emergencyContactPhone:  { type: String, default: "" },
+    dateOfBirth:           { type: String, default: "" },
+    nic:                   { type: String, default: "" },
+    address:               { type: String, default: "" },
+    emergencyContactName:  { type: String, default: "" },
+    emergencyContactPhone: { type: String, default: "" },
 
-    // ── Profile: bank details ───────────────────────────────────────────
+    // ── Bank details ───────────────────────────────────────────────────────
     bankDetails: { type: bankDetailsSchema, default: () => ({}) },
+
+    // ── Family details ─────────────────────────────────────────────────────
+    familyDetails: {
+      type: new mongoose.Schema(
+        {
+          spouse:   { type: familyMemberSchema, default: () => ({}) },
+          father:   { type: familyMemberSchema, default: () => ({}) },
+          mother:   { type: familyMemberSchema, default: () => ({}) },
+          children: { type: [childSchema],       default: []         },
+        },
+        { _id: false }
+      ),
+      default: () => ({}),
+    },
+
+    // ── Employer documents ─────────────────────────────────────────────────
+    documents: {
+      type: new mongoose.Schema(
+        {
+          cv:             { type: documentFileSchema, default: () => ({}) },
+          policeReport:   { type: documentFileSchema, default: () => ({}) },
+          gramaNiladhari: { type: documentFileSchema, default: () => ({}) },
+        },
+        { _id: false }
+      ),
+      default: () => ({}),
+    },
   },
   { timestamps: true }
 );

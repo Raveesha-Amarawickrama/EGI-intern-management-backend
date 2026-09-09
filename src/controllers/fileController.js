@@ -1,17 +1,20 @@
-// controllers/fileController.js
-const path = require("path");
-const fs   = require("fs");
-const File = require("../models/File");
 
-const UPLOAD_DIR = path.join(__dirname, "../uploads");
+const File      = require("../models/File");
+const cloudinary = require("../config/cloudinary");
 
-// GET /api/files
+const safeDestroy = async (publicId, resourceType = "auto") => {
+  if (!publicId) return;
+  try { await cloudinary.uploader.destroy(publicId, { resource_type: resourceType }); }
+  catch (_) { }
+};
+
+
 const getFiles = async (req, res) => {
   try {
     const { status } = req.query;
     const filter     = {};
 
-    // Interns see only their own uploads; supervisors see all
+  
     if (req.user.role === "intern") filter.uploadedBy = req.user._id;
     if (status) filter.status = status;
 
@@ -25,20 +28,22 @@ const getFiles = async (req, res) => {
   }
 };
 
-// POST /api/files/upload   (multer attaches req.file)
+
 const uploadFile = async (req, res) => {
   try {
     if (!req.file)
       return res.status(400).json({ message: "No file provided" });
 
-    const ext  = path.extname(req.file.originalname).replace(".", "").toLowerCase();
+    const originalName = req.file.originalname;
+    const ext  = (originalName.split(".").pop() || "").toLowerCase();
 
     const file = await File.create({
-      originalName: req.file.originalname,
-      storedName:   req.file.filename,
-      filePath:     `/uploads/${req.file.filename}`,
+      originalName,
+      storedName:   req.file.filename,       
+      filePath:     req.file.path,              
+      cloudPublicId: req.file.filename,
       fileType:     ext,
-      fileSize:     req.file.size,
+      fileSize:     req.file.size || 0,
       mimeType:     req.file.mimetype,
       uploadedBy:   req.user._id,
       uploaderRole: req.user.role,
@@ -51,7 +56,7 @@ const uploadFile = async (req, res) => {
   }
 };
 
-// PATCH /api/files/:id/status   (supervisors only)
+
 const changeFileStatus = async (req, res) => {
   try {
     if (req.user.role !== "supervisor")
@@ -73,13 +78,12 @@ const changeFileStatus = async (req, res) => {
   }
 };
 
-// DELETE /api/files/:id
+
 const deleteFile = async (req, res) => {
   try {
     const file = await File.findById(req.params.id);
     if (!file) return res.status(404).json({ message: "File not found" });
 
-    // Only uploader or supervisor can delete
     if (
       String(file.uploadedBy._id || file.uploadedBy) !== String(req.user._id) &&
       req.user.role !== "supervisor"
@@ -87,9 +91,8 @@ const deleteFile = async (req, res) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    // Remove file from disk
-    const diskPath = path.join(UPLOAD_DIR, file.storedName);
-    if (fs.existsSync(diskPath)) fs.unlinkSync(diskPath);
+  
+    await safeDestroy(file.cloudPublicId || file.storedName, "auto");
 
     await file.deleteOne();
     res.json({ ok: true });
@@ -98,13 +101,22 @@ const deleteFile = async (req, res) => {
   }
 };
 
-// GET /api/files/:id/download
+
 const downloadFile = async (req, res) => {
   try {
     const file = await File.findById(req.params.id);
     if (!file) return res.status(404).json({ message: "File not found" });
 
-    const diskPath = path.join(UPLOAD_DIR, file.storedName);
+  
+    if (file.filePath && /^https?:\/\//i.test(file.filePath)) {
+      return res.redirect(file.filePath);
+    }
+
+   
+    const path = require("path");
+    const fs   = require("fs");
+    const UPLOAD_DIR = path.join(__dirname, "../uploads");
+    const diskPath   = path.join(UPLOAD_DIR, file.storedName);
     if (!fs.existsSync(diskPath))
       return res.status(404).json({ message: "File not found on disk" });
 
