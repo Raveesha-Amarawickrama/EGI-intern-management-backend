@@ -1,15 +1,15 @@
-
+const path = require("path");
+require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 
 const http       = require("http");
 const express    = require("express");
 const mongoose   = require("mongoose");
 const cors       = require("cors");
-const path       = require("path");
-require("dotenv").config();
 
 const helmet        = require("helmet");
 const rateLimit     = require("express-rate-limit");
 const mongoSanitize = require("express-mongo-sanitize");
+
 
 const app        = express();
 const httpServer = http.createServer(app);
