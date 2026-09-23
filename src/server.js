@@ -1,6 +1,4 @@
 
-const dns = require('dns');
-dns.setServers(['8.8.8.8', '8.8.4.4']);
 
 const http       = require("http");
 const express    = require("express");
@@ -9,11 +7,22 @@ const cors       = require("cors");
 const path       = require("path");
 require("dotenv").config();
 
+const helmet        = require("helmet");
+const rateLimit     = require("express-rate-limit");
+const mongoSanitize = require("express-mongo-sanitize");
+
 const app        = express();
 const httpServer = http.createServer(app);
 const startSocialCron = require("./jobs/socialCron");
 const startRenewalReminderJob = require("./jobs/renewalReminderJob"); 
 
+// ── 1. Security Headers ────────────────────────────────────────────────────────
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  contentSecurityPolicy: false,
+}));
+
+// ── 2. CORS ───────────────────────────────────────────────────────────────────
 app.use(cors({
   origin: process.env.CLIENT_URL || "http://localhost:3000",
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -21,7 +30,32 @@ app.use(cors({
   credentials: true,
 }));
 app.options('*', cors());
-app.use(express.json());
+
+// ── 3. Body Parser with Size Limits ───────────────────────────────────────────
+app.use(express.json({ limit: "25kb" }));
+app.use(express.urlencoded({ extended: true, limit: "25kb" }));
+
+// ── 4. NoSQL Injection Prevention ─────────────────────────────────────────────
+app.use(mongoSanitize());
+
+// ── 5. Rate Limiting ──────────────────────────────────────────────────────────
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many requests. Please try again after 15 minutes." },
+});
+app.use("/api", generalLimiter);
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: "Too many login/auth attempts. Please try again after 15 minutes." },
+});
+app.use("/api/auth/login", authLimiter);
 
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
@@ -38,6 +72,33 @@ app.use("/api/social",          require("./routes/social"));
 app.use("/api/files",           require("./routes/files"));
 app.use("/api/third-party-items",     require("./routes/thirdPartyItems"));    
 app.use("/api/renewal-notifications", require("./routes/renewalNotifications")); 
+
+// ── 6. Centralized Safe Error Handling ─────────────────────────────────────────
+app.use((err, req, res, next) => {
+  console.error(`[ServerError] ${req.method} ${req.originalUrl}:`, err.message);
+
+  if (err.code === 11000) {
+    const field = Object.keys(err.keyValue || {})[0] || "field";
+    return res.status(400).json({
+      success: false,
+      message: `A record with that ${field} already exists.`,
+    });
+  }
+
+  if (err.name === "ValidationError") {
+    const messages = Object.values(err.errors).map(e => e.message);
+    return res.status(400).json({
+      success: false,
+      message: messages.join(", "),
+    });
+  }
+
+  const statusCode = err.statusCode || err.status || 500;
+  res.status(statusCode).json({
+    success: false,
+    message: process.env.NODE_ENV === "production" ? "Internal server error." : (err.message || "Internal server error."),
+  });
+});
 
 require("./socket")(httpServer);
 

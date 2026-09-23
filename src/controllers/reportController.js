@@ -8,25 +8,42 @@ const { getWeekKey: currentWeekKey } = require("../utils/weekKey");
 
 exports.getInternReport = async (req, res, next) => {
   try {
-    const interns = await User.find({ role: "intern" }).select("-password").sort({ name: 1 });
+    const { page, limit } = req.query;
+    const isPaginated = page !== undefined || limit !== undefined;
+    const pageNum  = Math.max(1, parseInt(page)  || 1);
+    const limitNum = Math.max(1, parseInt(limit) || 12);
+    const skip     = (pageNum - 1) * limitNum;
+
+    let internsQuery = User.find({ role: "intern" }).select("-password").sort({ name: 1 });
+    let interns;
+    let total;
+
+    if (isPaginated) {
+      [interns, total] = await Promise.all([
+        internsQuery.skip(skip).limit(limitNum),
+        User.countDocuments({ role: "intern" }),
+      ]);
+    } else {
+      interns = await internsQuery;
+      total = interns.length;
+    }
+
     const wk = currentWeekKey();
 
     const report = await Promise.all(interns.map(async (intern) => {
       const allTasks = await Task.find({ assignedTo: intern._id });
 
-    
       const leaveTasks    = allTasks.filter(t => t.isLeave === true);
       const realTasks     = allTasks.filter(t => t.isLeave !== true);
       const weekRealTasks = realTasks.filter(t => t.weekKey === wk);
 
-      const total      = realTasks.length;
+      const totalTasks = realTasks.length;
       const done       = realTasks.filter(t => t.status === "Done").length;
       const inProgress = realTasks.filter(t => t.status === "In Progress").length;
       const hold       = realTasks.filter(t => t.status === "Hold").length;
       const todo       = realTasks.filter(t => t.status === "To Do").length;
       const leaveDays  = leaveTasks.length;
 
-  
       const totalMins = realTasks.reduce((s, t) => {
         const p = t.totalMinutes || 0;
         const sub = (t.subTasks||[]).reduce((ss, st) => ss + (st.totalMinutes||0), 0);
@@ -37,18 +54,24 @@ exports.getInternReport = async (req, res, next) => {
         const sub = (t.subTasks||[]).reduce((ss, st) => ss + (st.totalMinutes||0), 0);
         return s + (p > 0 ? p : sub);
       }, 0);
-      const pct       = total > 0 ? Math.round((done / total) * 100) : 0;
+      const pct       = totalTasks > 0 ? Math.round((done / totalTasks) * 100) : 0;
 
       return {
         _id: intern._id, name: intern.name, username: intern.username,
         email: intern.email, position: intern.position, department: intern.department,
         startDate: intern.startDate, endDate: intern.endDate,
-        avatar: intern.avatar, avatarColor: intern.avatarColor,
-        stats: { total, done, inProgress, hold, todo, leaveDays, totalMins, weekMins, pct },
+        avatar: intern.avatar, avatarColor: intern.avatarColor, profilePicture: intern.profilePicture,
+        stats: { total: totalTasks, done, inProgress, hold, todo, leaveDays, totalMins, weekMins, pct },
       };
     }));
 
-    res.json({ success: true, report });
+    res.json({
+      success: true,
+      total,
+      page: isPaginated ? pageNum : 1,
+      totalPages: isPaginated ? Math.ceil(total / limitNum) : 1,
+      report,
+    });
   } catch (err) { next(err); }
 };
 

@@ -22,41 +22,64 @@ const enrichTasks = async (tasks) => {
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getTasks = async (req, res, next) => {
   try {
-    const { status, project, search, internId, date, weekKey } = req.query;
+    const { status, project, search, internId, date, weekKey, page, limit, all } = req.query;
     let filter = {};
 
     if (req.user.role === "intern") {
       filter.assignedTo = req.user._id;
     } else if (req.user.role === "supervisor") {
-      if (internId && internId !== "All") filter.assignedTo = internId;
+      if (req.user.supervisorLevel === "junior") {
+        if (internId && internId !== "All") {
+          const target = await User.findById(internId).select("role supervisorLevel");
+          if (!target || (target.role !== "intern" && String(target._id) !== String(req.user._id))) {
+            return res.json({ success: true, count: 0, total: 0, page: 1, totalPages: 0, tasks: [] });
+          }
+          filter.assignedTo = internId;
+        } else {
+          const allowedUsers = await User.find({
+            $or: [{ role: "intern" }, { _id: req.user._id }]
+          }).select("_id");
+          filter.assignedTo = { $in: allowedUsers.map(u => u._id) };
+        }
+      } else {
+        if (internId && internId !== "All") filter.assignedTo = internId;
+      }
     }
 
     if (status  && status  !== "All") filter.status  = status;
     if (project && project !== "All") filter.project = project;
     if (search)  filter.task = { $regex: search, $options: "i" };
 
-
     if (date && !weekKey) {
       filter.date = date;
     }
 
-  
     if (weekKey) {
       const { start, end } = weekKeyToDateRange(weekKey);
       filter.date = { $gte: start, $lte: end };
     }
 
-    let tasks = await Task.find(filter)
+    const isPaginated = all !== "true" && (page !== undefined || limit !== undefined);
+    const pageNum  = Math.max(1, parseInt(page)  || 1);
+    const limitNum = Math.max(1, parseInt(limit) || 15);
+    const skip     = (pageNum - 1) * limitNum;
+
+    let tasksQuery = Task.find(filter)
       .populate("assignedTo", "name avatar avatarColor role supervisorLevel")
       .populate("createdBy",  "name role")
       .sort({ date: -1, createdAt: -1 });
 
-    if (req.user.role === "supervisor" && req.user.supervisorLevel === "junior") {
-      tasks = tasks.filter(t => {
-        const at = t.assignedTo;
-        if (!at) return false;
-        return at.role === "intern" || String(at._id) === String(req.user._id);
-      });
+    let tasks;
+    let total;
+
+    if (isPaginated) {
+      [tasks, total] = await Promise.all([
+        tasksQuery.skip(skip).limit(limitNum),
+        Task.countDocuments(filter),
+      ]);
+    } else {
+      tasks = await tasksQuery;
+      total = tasks.length;
     }
 
     const fixedTasks = tasks.map(t => {
@@ -68,7 +91,14 @@ exports.getTasks = async (req, res, next) => {
     });
 
     const enriched = await enrichTasks(fixedTasks);
-    res.json({ success: true, count: enriched.length, tasks: enriched });
+    res.json({
+      success: true,
+      count: enriched.length,
+      total,
+      page: isPaginated ? pageNum : 1,
+      totalPages: isPaginated ? Math.ceil(total / limitNum) : 1,
+      tasks: enriched,
+    });
   } catch (err) { next(err); }
 };
 

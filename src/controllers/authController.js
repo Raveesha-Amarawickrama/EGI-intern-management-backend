@@ -9,8 +9,14 @@ const signToken = (id) =>
 exports.login = async (req, res, next) => {
   try {
     const { username, password, role } = req.body;
-    if (!username || !password || !role)
+    if (
+      !username || !password || !role ||
+      typeof username !== "string" ||
+      typeof password !== "string" ||
+      typeof role !== "string"
+    ) {
       return res.status(400).json({ success: false, message: "username, password and role are required." });
+    }
 
     const user = await User.findOne({ username: username.toLowerCase(), role });
     if (!user)
@@ -36,14 +42,23 @@ exports.login = async (req, res, next) => {
 exports.register = async (req, res, next) => {
   try {
     const {
-      name, username, password, role, supervisorLevel,
+      name, username, password,
       email, contact, position, department,
       startDate, endDate, avatar, avatarColor,
     } = req.body;
 
+    if (!name || !username || !password || !email) {
+      return res.status(400).json({ success: false, message: "Name, username, password and email are required." });
+    }
+
+    // Security: /api/auth/register is strictly for interns.
+    // Supervisors must be registered via /api/auth/register-supervisor by a Senior Supervisor.
+    const role = "intern";
+    const supervisorLevel = null;
+
     const user = await User.create({
       name, username, password,
-      role, supervisorLevel: supervisorLevel || null,
+      role, supervisorLevel,
       email, contact, position, department,
       startDate, endDate,
       avatar:      avatar      || (name ? name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase() : "U"),
@@ -90,13 +105,18 @@ exports.resetPassword = async (req, res, next) => {
     if (!newPassword || newPassword.length < 6)
       return res.status(400).json({ success: false, message: "Password must be at least 6 characters." });
 
-   
     const target = await User.findById(req.params.userId);
     if (!target)
       return res.status(404).json({ success: false, message: "User not found." });
 
-    if (req.user.supervisorLevel === "junior" && target.role !== "intern")
-      return res.status(403).json({ success: false, message: "Junior supervisors can only reset intern passwords." });
+    // Security: Only Senior Supervisors can reset passwords for other supervisors.
+    // Non-senior supervisors can only reset passwords for interns.
+    if (req.user.supervisorLevel !== "senior" && target.role === "supervisor") {
+      return res.status(403).json({
+        success: false,
+        message: "Only senior supervisors can reset passwords for supervisor accounts.",
+      });
+    }
 
     target.password = newPassword;
     target.mustChangePassword = true; 

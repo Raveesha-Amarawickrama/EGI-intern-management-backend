@@ -15,7 +15,7 @@ module.exports = function attachSocket(httpServer) {
   const onlineUsers = new Map(); // userId → socketId
 
   // ── Auth middleware ──────────────────────────────────────────────────────────
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     try {
       const token =
         socket.handshake.auth?.token ||
@@ -23,7 +23,11 @@ module.exports = function attachSocket(httpServer) {
       if (!token) return next(new Error("No token"));
       const decoded  = jwt.verify(token, process.env.JWT_SECRET);
       socket.userId  = String(decoded.id || decoded._id);
-      socket.role    = decoded.role;
+
+      const user = await User.findById(socket.userId).select("role supervisorLevel");
+      if (!user) return next(new Error("User no longer exists"));
+      socket.role            = user.role;
+      socket.supervisorLevel = user.supervisorLevel;
       next();
     } catch {
       next(new Error("Invalid token"));
@@ -41,8 +45,11 @@ module.exports = function attachSocket(httpServer) {
     socket.join(`user:${socket.userId}`);
     socket.join(`user_room:${socket.userId}`);
 
-    // ── Join group rooms on request ──────────────────────────────────────────
+    // ── Join group rooms on request (role checked) ──────────────────────────
     socket.on("join_group", ({ groupType }) => {
+      if (groupType === "supervisors" && socket.role !== "supervisor") {
+        return socket.emit("error", { message: "Unauthorized to join supervisors room." });
+      }
       socket.join(`group:${groupType}`);
     });
 
@@ -67,6 +74,9 @@ module.exports = function attachSocket(httpServer) {
     socket.on("send_group_message", async ({ groupType, members, content, replyTo }) => {
       try {
         if (!["interns", "supervisors"].includes(groupType)) return;
+        if (groupType === "supervisors" && socket.role !== "supervisor") {
+          return socket.emit("error", { message: "Unauthorized to post in supervisors group." });
+        }
 
         // Interns cannot send to supervisors group
         if (groupType === "supervisors" && socket.role === "intern") return;

@@ -32,6 +32,11 @@ exports.createItem = async (req, res, next) => {
       createdBy: req.user._id,
     });
 
+    const job = req.app.get("renewalReminderJob");
+    if (job?.checkRenewals) {
+      job.checkRenewals(false).catch(e => console.error("Error triggering reminder check after create:", e));
+    }
+
     res.status(201).json({ success: true, item });
   } catch (err) { next(err); }
 };
@@ -115,7 +120,7 @@ exports.checkRemindersNow = async (req, res, next) => {
       return res.status(500).json({ success: false, message: "Reminder job is not available. Restart the server." });
     }
 
-    const result = await job.checkRenewals();
+    const result = await job.checkRenewals(true);
     res.json({ success: true, message: `Check complete. ${result.notified || 0} item(s) notified.` });
   } catch (err) { next(err); }
 };

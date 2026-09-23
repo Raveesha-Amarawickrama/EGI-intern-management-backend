@@ -158,6 +158,12 @@ function buildRenewalEmailText({ itemName, vendor, renewalDate, daysLeft, notes 
 // ── Public API ─────────────────────────────────────────────────────────────────
 async function sendRenewalEmail(to, subject, message, itemDetails = {}) {
   try {
+    const cleanTo = (to || "").trim().toLowerCase();
+    if (!cleanTo) {
+      console.warn("[emailService] Skipped: recipient email is empty.");
+      return { success: false, error: "Empty recipient email" };
+    }
+
     const transporter = getTransporter();
     const fromName    = process.env.SMTP_FROM_NAME || "Eco Green International";
     const fromAddr    = process.env.SMTP_USER;
@@ -175,18 +181,19 @@ async function sendRenewalEmail(to, subject, message, itemDetails = {}) {
       ? buildRenewalEmailText(itemDetails)
       : message;
 
-    await transporter.sendMail({
+    const info = await transporter.sendMail({
       from:    `"${fromName}" <${fromAddr}>`,
-      to,
+      to:      cleanTo,
       subject,
       text,
       html,
     });
 
-    console.log(`[emailService] Reminder sent to ${to} — "${subject}"`);
+    console.log(`[emailService] Reminder sent to ${cleanTo} — "${subject}" (id: ${info.messageId})`);
+    return { success: true, messageId: info.messageId };
   } catch (err) {
     console.error(`[emailService] Failed to email ${to}:`, err.message);
-    // Do NOT rethrow – a failed email must not crash the cron job or controller.
+    return { success: false, error: err.message };
   }
 }
 
